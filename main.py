@@ -24,13 +24,13 @@ db.init_app(app)
 
 class Movies(db.Model):
     id : Mapped[int] = mapped_column(Integer, primary_key=True)
-    title : Mapped[str] = mapped_column(String(250), unique=True, nullable=False)
-    year  : Mapped[int] = mapped_column(Integer, nullable=False)
-    description : Mapped[str] = mapped_column(String(500), nullable=False)
-    rating : Mapped[int] = mapped_column(Float, nullable=False)
-    ranking : Mapped[int] = mapped_column(Integer, nullable=False)
-    review : Mapped[str] = mapped_column(String(250), nullable=False)
-    img_url : Mapped[str] = mapped_column(String(250), nullable=False)
+    title : Mapped[str] = mapped_column(String(250), unique=True)
+    year  : Mapped[int] = mapped_column(Integer)
+    description : Mapped[str] = mapped_column(String(500))
+    rating : Mapped[int] = mapped_column(Float)
+    ranking : Mapped[int] = mapped_column(Integer)
+    review : Mapped[str] = mapped_column(String(250))
+    img_url : Mapped[str] = mapped_column(String(250))
 
 with app.app_context():
     db.create_all()
@@ -44,11 +44,24 @@ class AddMovieForm(FlaskForm):
     title = StringField(label="Movie Title", validators=[DataRequired()])
     submit = SubmitField(label='Add Movie')
 
+
+
+MOVIE_DB_IMAGE_URL = "https://image.tmdb.org/t/p/w500"
+headers = {
+    "accept": "application/json",
+    "Authorization": "Bearer eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiIxNjgxZWMyYzQzODIwZWZlMDlhZDgxZmEwM2JjMmVlYiIsInN1YiI6IjY2MThjNjg0NmYzMWFmMDE0OTlhNWU0NCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.eJg4Kab1x0ynsUpteIZ1mxAclWc9rUWG1defHDL-5ts"
+    }
+
 @app.route("/")
 def home():
-    movies =     result = db.session.execute(db.select(Movies))
-    all_movies = result.scalars()
-    return render_template("index.html", movies=all_movies)
+    all_movies = db.session.execute(db.select(Movies).order_by(Movies.rating))
+    ranked = all_movies.scalars().all()
+    
+    print(ranked)
+    for i in range(len(ranked)):
+        ranked[i].ranking = len(ranked) - i
+    db.session.commit()
+    return render_template("index.html", movies=ranked)
 
 @app.route('/edit', methods=['POST', "GET"])
 def edit():
@@ -72,12 +85,42 @@ def delete():
     db.session.commit()
     return redirect('/')
 
-@app.route('/add')
-def add_movie():
+@app.route('/add', methods=['POST', 'GET'])
+def movie_add():
     add_form = AddMovieForm()
+
     
+    if request.method == 'POST':
+        title = add_form.title.data
+        url = f"https://api.themoviedb.org/3/search/movie?query={title}&include_adult=false&language=en-US&page=1"
+
+        response = requests.get(url, headers=headers)
+        response = response.json()
+        print(response)
+        return render_template('select.html', movies=response)
+
     return render_template('add.html', add_form = add_form)
+   
+@app.route('/add_movie') 
+def add_movie():
+    id = request.args.get('id')
+    url = f"https://api.themoviedb.org/3/movie/{id}?language=en-US"
+
+    response = requests.get(url=url, headers=headers)
+    response = response.json()
+    new_movie = Movies(
+        id = id,
+        title = response['title'],
+        year = response['release_date'],
+        description = response['overview'],
+        rating = 0,
+        ranking = response['popularity'],
+        review = "None",
+        img_url = f"{MOVIE_DB_IMAGE_URL}{response['poster_path']}"
+    )
+    db.session.add(new_movie)
+    db.session.commit()
     
-    
+    return redirect('/')
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, port=3000)
